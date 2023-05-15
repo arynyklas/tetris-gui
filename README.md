@@ -11,5 +11,8 @@ This is a regular tetris written in Python v3.7+ using Qt (PyQt5)
 - Save results after closing the game
 - Implement sharing of your record result (copies to the clipboard)
 
+### TODO:
+- Normal icons for buttons
+- Fix borders in game's frame
 
-##### The basis of the game is taken from [here] (https://zetcode.com/gui/pyqt5/tetris/)
+##### The basis of the game is taken from [here](https://zetcode.com/gui/pyqt5/tetris/)

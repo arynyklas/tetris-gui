@@ -9,11 +9,11 @@ from random import randint
 
 from ui import Ui_MainWindow
 
-from typing import List, Tuple
+from typing import Union, List, Tuple
 
 
 class Assets:
-    font: QFont
+    font: Union[QFont, None] = None
 
     class sounds:
         drop: QSound
@@ -72,19 +72,27 @@ class MainWindow(QMainWindow):
 
         self.clipboard: QClipboard = clipboard
 
-        Assets.font = QFont(
-            QFontDatabase.applicationFontFamilies(
-                QFontDatabase.addApplicationFont("assets/fonts/FiraMono-Medium.ttf")
-            )[0]
-        )
+        try:
+            Assets.font = QFont(
+                QFontDatabase.applicationFontFamilies(
+                    QFontDatabase.addApplicationFont("assets/fonts/FiraMono-Medium.ttf")
+                )[0]
+            )
+
+        except IndexError:
+            pass
 
         Assets.sounds.drop = QSound("assets/sounds/drop.wav", self)
         Assets.sounds.line_clear = QSound("assets/sounds/line_clear.wav", self)
         Assets.sounds.game_over = QSound("assets/sounds/game_over.wav", self)
 
-        for ui_el_name in dir(self.ui):
-            if ui_el_name.endswith("LineEdit") or ui_el_name.endswith("Label"):
-                getattr(self.ui, ui_el_name).setFont(Assets.font)
+        if Assets.font:
+            for ui_el_name in dir(self.ui):
+                if ui_el_name.endswith("LineEdit") or ui_el_name.endswith("Label"):
+                    getattr(self.ui, ui_el_name).setFont(Assets.font)
+
+        self.setWindowIcon(QIcon("assets/images/tetris.png"))
+        self.setIconSize(QSize(32, 32))
 
         self.game_board: GameBoard = GameBoard(
             frame = self.ui.gameFrame
@@ -117,6 +125,8 @@ class MainWindow(QMainWindow):
             int((screen.width() - size.width()) / 2),
             int((screen.height() - size.height()) / 2)
         )
+
+        print(self.ui.gameFrame.size())
 
         self.show()
 
@@ -409,8 +419,8 @@ class GameBoard(QObject):
         y: int
 
         for i in rows_to_remove:
-            for x in range(i, self.BASE_SQUARE_HEIGHT):
-                for y in range(self.BASE_SQUARE_WIDTH):
+            for y in range(i, self.BASE_SQUARE_HEIGHT):
+                for x in range(self.BASE_SQUARE_WIDTH):
                     self.set_shape_at(
                         x = x,
                         y = y,
