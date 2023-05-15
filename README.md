@@ -14,5 +14,6 @@ This is a regular tetris written in Python v3.7+ using Qt (PyQt5)
 ### TODO:
 - Normal icons for buttons
 - Fix borders in game's frame
+- Fix [#2](/../../issues/2)
 
 ##### The basis of the game is taken from [here](https://zetcode.com/gui/pyqt5/tetris/)
