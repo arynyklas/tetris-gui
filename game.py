@@ -1,14 +1,30 @@
-from PyQt5.QtCore import Qt, QBasicTimer, pyqtSignal, QRect, QTimerEvent
-from PyQt5.QtGui import QPainter, QColor, QKeyEvent, QPaintEvent
-from PyQt5.QtWidgets import QStatusBar, QMainWindow, QFrame, QWidget, QDesktopWidget, QApplication, QGridLayout
+from PyQt5.QtCore import Qt, QBasicTimer, pyqtBoundSignal, pyqtSignal, QRect, QTimerEvent, QSize, QObject
+from PyQt5.QtGui import QPainter, QColor, QKeyEvent, QPaintEvent, QIcon, QFontDatabase, QFont, QClipboard
+from PyQt5.QtWidgets import QMainWindow, QFrame, QDesktopWidget, QApplication, QMessageBox
+from PyQt5.QtMultimedia import QSound
 
 from pydantic import BaseModel, Field as ModelField
 from simplejson import load as load_json, dump as dump_json
+from random import randint
 
-import random
-import sys
+from ui import Ui_MainWindow
 
 from typing import List, Tuple
+
+
+class Assets:
+    font: QFont
+
+    class sounds:
+        drop: QSound
+        line_clear: QSound
+        game_over: QSound
+
+
+class Statuses:
+    in_game: str = "In game"
+    paused: str = "Paused"
+    game_over: str = "Game Over!"
 
 
 GAME_DATA_FILENAME: str = "data"
@@ -16,6 +32,9 @@ GAME_DATA_FILE_ENCODING: str = "utf-8"
 
 
 class GameData(BaseModel):
+    class Config:
+        arbitrary_types_allowed: bool = True
+
     max_points: int = ModelField(default=0)
     last_points: int = ModelField(default=0)
 
@@ -44,33 +63,52 @@ game_data: GameData = GameData(
 )
 
 
-class Tetris(QMainWindow):
-    def __init__(self) -> None:
-        super().__init__()
+class MainWindow(QMainWindow):
+    def __init__(self, clipboard: QClipboard):
+        super(MainWindow, self).__init__()
 
-        self.initUI()
+        self.ui: Ui_MainWindow = Ui_MainWindow()
+        self.ui.setupUi(self)
 
-    def initUI(self) -> None:
-        self.tboard: Board = Board(self)
-        # self.tboard.layout: QGridLayout = QGridLayout()
-        self.setCentralWidget(self.tboard)
-        # layout.addWidget(self.tboard)
+        self.clipboard: QClipboard = clipboard
 
-        self.statusbar: QStatusBar = self.statusBar()
-        self.tboard.status_bar_signal[str].connect(self.statusbar.showMessage)
-        # status_bar: QStatusBar = self.statusBar()
-        # self.tboard.status_bar_signal[str].connect(status_bar.showMessage)
+        Assets.font = QFont(
+            QFontDatabase.applicationFontFamilies(
+                QFontDatabase.addApplicationFont("assets/fonts/FiraMono-Medium.ttf")
+            )[0]
+        )
 
-        # self.glayout
-        # layout: QGridLayout = QGridLayout()
-        # self.tboard.layout.addWidget(status_bar, 0, 0)
-        # self.setLayout(layout)
-        # self.tboard.layout = layout
+        Assets.sounds.drop = QSound("assets/sounds/drop.wav", self)
+        Assets.sounds.line_clear = QSound("assets/sounds/line_clear.wav", self)
+        Assets.sounds.game_over = QSound("assets/sounds/game_over.wav", self)
 
-        self.tboard.start()
+        for ui_el_name in dir(self.ui):
+            if ui_el_name.endswith("LineEdit") or ui_el_name.endswith("Label"):
+                getattr(self.ui, ui_el_name).setFont(Assets.font)
 
-        # self.resize(180, 380)
-        self.resize(200, 420)
+        self.game_board: GameBoard = GameBoard(
+            frame = self.ui.gameFrame
+        )
+
+        self.game_board.status_slot.connect(self.handle_status_signal)
+        self.game_board.max_score_slot.connect(self.handle_max_score_signal)
+        self.game_board.last_score_slot.connect(self.handle_last_score_signal)
+
+        self.ui.pauseButton.setIcon(QIcon("assets/images/pause.png"))
+        self.ui.pauseButton.setIconSize(QSize(32, 32))
+        self.ui.pauseButton.clicked.connect(self.handler_pause_button_clicked)
+
+        self.ui.restartButton.setIcon(QIcon("assets/images/restart.png"))
+        self.ui.restartButton.setIconSize(QSize(32, 32))
+        self.ui.restartButton.clicked.connect(self.handler_restart_button_clicked)
+
+        self.ui.shareScoresButton.setIcon(QIcon("assets/images/share_scores.png"))
+        self.ui.shareScoresButton.setIconSize(QSize(32, 32))
+        self.ui.shareScoresButton.clicked.connect(self.handler_share_scores_button_clicked)
+
+        self.ui.maxScoreLineEdit.setText(str(game_data.max_points))
+
+        self.game_board.start()
 
         screen: QRect = QDesktopWidget().screenGeometry()
         size: QRect = self.geometry()
@@ -80,16 +118,46 @@ class Tetris(QMainWindow):
             int((screen.height() - size.height()) / 2)
         )
 
-        self.setWindowTitle("Game - Tetris")
         self.show()
 
+    def handle_status_signal(self, status_text: str) -> None:
+        self.ui.statusLineEdit.setText(status_text)
 
-class Board(QFrame):
-    status_bar_signal: pyqtSignal = pyqtSignal(str)
+    def handle_max_score_signal(self, max_score: int) -> None:
+        self.ui.maxScoreLineEdit.setText(str(max_score))
 
-    BASE_WIDTH: int = 10
-    BASE_HEIGHT: int = 22
-    SPEED: int = 300 # 10 # 300 # TODO: return old value
+    def handle_last_score_signal(self, last_score: int) -> None:
+        self.ui.lastScoreLineEdit.setText(str(last_score))
+
+    def handler_pause_button_clicked(self) -> None:
+        self.game_board.pause()
+
+    def handler_restart_button_clicked(self) -> None:
+        game_data.save()
+
+        self.game_board.start()
+
+    def handler_share_scores_button_clicked(self) -> None:
+        max_scores: int = int(self.ui.maxScoreLineEdit.text())
+        last_scores: int = int(self.ui.lastScoreLineEdit.text())
+
+        # clipboard: QClipboard = QClipboard()
+        self.clipboard.setText(f"Your results in Tetris:\n\nMax score - {max_scores}\nLast score - {last_scores}")
+
+        message_box: QMessageBox = QMessageBox(self)
+        message_box.setWindowTitle(self.windowTitle())
+        message_box.setText("Results was copied!")
+        message_box.exec()
+
+
+class GameBoard(QObject):
+    status_slot: pyqtBoundSignal = pyqtSignal(str)
+    max_score_slot: pyqtBoundSignal = pyqtSignal(int)
+    last_score_slot: pyqtBoundSignal = pyqtSignal(int)
+
+    BASE_SQUARE_WIDTH: int = 10
+    BASE_SQUARE_HEIGHT: int = 22
+    SPEED: int = 300
 
     COLOR_TABLE: List[int] = [
         0x000000,
@@ -102,12 +170,9 @@ class Board(QFrame):
         0xDAAA00
     ]
 
-    def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
+    def __init__(self, frame: QFrame) -> None:
+        super(GameBoard, self).__init__()
 
-        self.init_board()
-
-    def init_board(self) -> None:
         self.timer: QBasicTimer = QBasicTimer()
         self.is_waiting_after_line: bool = False
 
@@ -116,38 +181,51 @@ class Board(QFrame):
         self.num_lines_removed: int = 0
         self.board: List[int] = []
 
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.frame: QFrame = frame
 
         self.is_started: bool = False
         self.is_paused: bool = False
 
-        self.clear_board()
+        self.frame.paintEvent = self.paintEvent
+        self.frame.keyPressEvent = self.keyPressEvent
+        self.frame.timerEvent = self.timerEvent
+
+        self.current_piece: Shape
 
     def get_shape_at(self, x: int, y: int) -> int:
-        return self.board[y * self.BASE_WIDTH + x]
+        return self.board[(y * self.BASE_SQUARE_WIDTH) + x]
 
     def set_shape_at(self, x: int, y: int, shape: int) -> None:
-        self.board[y * self.BASE_WIDTH + x] = shape
+        self.board[(y * self.BASE_SQUARE_WIDTH) + x] = shape
 
     def square_width(self) -> int:
-        return self.contentsRect().width() // self.BASE_WIDTH
+        return self.frame.contentsRect().width() // self.BASE_SQUARE_WIDTH
 
     def square_height(self) -> int:
-        return self.contentsRect().height() // self.BASE_HEIGHT
+        return self.frame.contentsRect().height() // self.BASE_SQUARE_HEIGHT
 
     def start(self) -> None:
         if self.is_paused:
             return
 
         self.is_started = True
+        self.is_paused = False
         self.is_waiting_after_line = False
         self.num_lines_removed = 0
 
+        self.current_x = 0
+        self.current_y = 0
+        self.board = []
+
         self.clear_board()
 
-        self.status_bar_signal.emit(str(self.num_lines_removed))
+        self.status_slot.emit(Statuses.in_game)
+        self.last_score_slot.emit(0)
 
         self.new_piece()
+
+        if self.timer.isActive():
+            self.timer.stop()
 
         self.timer.start(self.SPEED, self)
 
@@ -159,35 +237,36 @@ class Board(QFrame):
 
         if self.is_paused:
             self.timer.stop()
-            self.status_bar_signal.emit("paused")
+            self.status_slot.emit(Statuses.paused)
 
         else:
             self.timer.start(self.SPEED, self)
-            self.status_bar_signal.emit(str(self.num_lines_removed))
+            self.status_slot.emit(Statuses.in_game)
 
-        self.update()
+        self.frame.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        painter: QPainter = QPainter(self)
-        rect: QRect = self.contentsRect()
+        painter: QPainter = QPainter(self.frame)
 
-        boardTop: int = rect.bottom() - self.BASE_HEIGHT * self.square_height()
+        rect: QRect = self.frame.contentsRect()
+
+        board_top: int = rect.bottom() - self.BASE_SQUARE_HEIGHT * self.square_height()
 
         i: int
         j: int
 
-        for i in range(self.BASE_HEIGHT):
-            for j in range(self.BASE_WIDTH):
+        for i in range(self.BASE_SQUARE_HEIGHT):
+            for j in range(self.BASE_SQUARE_WIDTH):
                 shape: int = self.get_shape_at(
                     x = j,
-                    y = self.BASE_HEIGHT - i - 1
+                    y = self.BASE_SQUARE_HEIGHT - i - 1
                 )
 
                 if shape != Tetrominoe.NoShape:
                     self.draw_square(
                         painter = painter,
                         x = rect.left() + j * self.square_width(),
-                        y = boardTop + i * self.square_height(),
+                        y = board_top + i * self.square_height(),
                         shape = shape
                     )
 
@@ -196,13 +275,12 @@ class Board(QFrame):
                 self.draw_square(
                     painter = painter,
                     x = rect.left() + (self.current_x + self.current_piece.x(i)) * self.square_width(),
-                    y = boardTop + (self.BASE_HEIGHT - (self.current_y - self.current_piece.y(i)) - 1) * self.square_height(),
+                    y = board_top + (self.BASE_SQUARE_HEIGHT - (self.current_y - self.current_piece.y(i)) - 1) * self.square_height(),
                     shape = self.current_piece.shape()
                 )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if not self.is_started or self.current_piece.shape() == Tetrominoe.NoShape:
-            super(Board, self).keyPressEvent(event)
             return
 
         key: int = event.key()
@@ -248,9 +326,6 @@ class Board(QFrame):
         elif key == Qt.Key_D:
             self.one_line_down()
 
-        else:
-            super(Board, self).keyPressEvent(event)
-
     def timerEvent(self, event: QTimerEvent) -> None:
         if event.timerId() == self.timer.timerId():
             if self.is_waiting_after_line:
@@ -260,18 +335,21 @@ class Board(QFrame):
             else:
                 self.one_line_down()
 
-        else:
-            super(Board, self).timerEvent(event)
-
     def clear_board(self) -> None:
-        for _ in range(self.BASE_HEIGHT * self.BASE_WIDTH):
-            self.board.append(Tetrominoe.NoShape)
+        self.board = [
+            Tetrominoe.NoShape
+            for _ in range(self.BASE_SQUARE_HEIGHT * self.BASE_SQUARE_WIDTH)
+        ]
 
     def drop_down(self) -> None:
         new_y: int = self.current_y
 
         while new_y > 0:
-            if not self.try_move(self.current_piece, self.current_x, new_y - 1):
+            if not self.try_move(
+                new_piece = self.current_piece,
+                new_x = self.current_x,
+                new_y = new_y - 1
+            ):
                 break
 
             new_y -= 1
@@ -279,10 +357,16 @@ class Board(QFrame):
         self.piece_dropped()
 
     def one_line_down(self) -> None:
-        if not self.try_move(self.current_piece, self.current_x, self.current_y - 1):
+        if not self.try_move(
+            new_piece = self.current_piece,
+            new_x = self.current_x,
+            new_y = self.current_y - 1
+        ):
             self.piece_dropped()
 
     def piece_dropped(self) -> None:
+        Assets.sounds.drop.play()
+
         i: int
 
         for i in range(4):
@@ -294,43 +378,45 @@ class Board(QFrame):
 
         self.remove_full_lines()
 
-        if not self.is_waiting_after_line:
+        if self.is_waiting_after_line:
+            Assets.sounds.line_clear.play()
+        else:
             self.new_piece()
 
-    def remove_full_lines(self) -> None:
+    def remove_full_lines(self) -> bool:
         num_full_lines: int = 0
         rows_to_remove: List[int] = []
 
         i: int
 
-        for i in range(self.BASE_HEIGHT):
+        for i in range(self.BASE_SQUARE_HEIGHT):
             n: int = 0
 
-            for j in range(self.BASE_WIDTH):
+            for j in range(self.BASE_SQUARE_WIDTH):
                 if not self.get_shape_at(
                     x = j,
                     y = i
                 ) == Tetrominoe.NoShape:
-                    n = n + 1
+                    n += 1
 
             if n == 10:
                 rows_to_remove.append(i)
 
         rows_to_remove.reverse()
 
-        m: int
-        k: int
-        l: int
+        i: int
+        x: int
+        y: int
 
-        for m in rows_to_remove:
-            for k in range(m, self.BASE_HEIGHT):
-                for l in range(self.BASE_WIDTH):
+        for i in rows_to_remove:
+            for x in range(i, self.BASE_SQUARE_HEIGHT):
+                for y in range(self.BASE_SQUARE_WIDTH):
                     self.set_shape_at(
-                        x = l,
-                        y = k,
+                        x = x,
+                        y = y,
                         shape = self.get_shape_at(
-                            x = l,
-                            y = k + 1
+                            x = x,
+                            y = y + 1
                         )
                     )
 
@@ -338,17 +424,28 @@ class Board(QFrame):
 
         if num_full_lines > 0:
             self.num_lines_removed += num_full_lines
-            self.status_bar_signal.emit(str(self.num_lines_removed))
-
+            self.last_score_slot.emit(self.num_lines_removed)
             self.is_waiting_after_line = True
             self.current_piece.set_shape(Tetrominoe.NoShape)
-            self.update()
+            self.frame.update()
+
+    def save_points(self) -> None:
+        last_points: int = self.num_lines_removed
+
+        game_data.last_points = last_points
+        self.last_score_slot.emit(last_points)
+
+        if game_data.last_points > game_data.max_points:
+            game_data.max_points = last_points
+            self.max_score_slot.emit(last_points)
+
+        game_data.save()
 
     def new_piece(self) -> None:
         self.current_piece: Shape = Shape()
-        self.current_piece.setRandomShape()
-        self.current_x: int = self.BASE_WIDTH // 2 + 1
-        self.current_y: int = self.BASE_HEIGHT - 1 + self.current_piece.minY()
+        self.current_piece.set_random_shape()
+        self.current_x: int = self.BASE_SQUARE_WIDTH // 2 + 1
+        self.current_y: int = self.BASE_SQUARE_HEIGHT - 1 + self.current_piece.min_y()
 
         if not self.try_move(
             new_piece = self.current_piece,
@@ -359,12 +456,7 @@ class Board(QFrame):
                 shape = Tetrominoe.NoShape
             )
 
-            game_data.last_points = self.num_lines_removed
-
-            if game_data.last_points > game_data.max_points:
-                game_data.max_points = game_data.last_points
-
-            game_data.save()
+            self.save_points()
 
             # NOTE: print board code:
             # print(self.board, "\n")
@@ -373,12 +465,15 @@ class Board(QFrame):
             #         items[i:i + n]
             #         for i in range(0, len(items), n)
             #     ]
-            # for row in chunker(self.board, self.BASE_WIDTH)[::-1]:
+            # for row in chunker(self.board, self.BASE_SQUARE_WIDTH)[::-1]:
             #     print(*row, sep=" | ")
 
             self.timer.stop()
             self.is_started = False
-            self.status_bar_signal.emit("Game over")
+
+            self.status_slot.emit(Statuses.game_over)
+
+            Assets.sounds.game_over.play()
 
     def try_move(self, new_piece: 'Shape', new_x: int, new_y: int) -> bool:
         i: int
@@ -387,7 +482,7 @@ class Board(QFrame):
             x: int = new_x + new_piece.x(i)
             y: int = new_y - new_piece.y(i)
 
-            if x < 0 or x >= self.BASE_WIDTH or y < 0 or y >= self.BASE_HEIGHT:
+            if x < 0 or x >= self.BASE_SQUARE_WIDTH or y < 0 or y >= self.BASE_SQUARE_HEIGHT:
                 return False
 
             if self.get_shape_at(
@@ -400,18 +495,21 @@ class Board(QFrame):
         self.current_x = new_x
         self.current_y = new_y
 
-        self.update()
+        self.frame.update()
 
         return True
 
     def draw_square(self, painter: QPainter, x: int, y: int, shape: int) -> None:
         color: QColor = QColor(self.COLOR_TABLE[shape])
 
+        square_width: int = self.square_width()
+        square_height: int = self.square_height()
+
         painter.fillRect(
             x + 1,
             y + 1,
-            self.square_width() - 2,
-            self.square_height() - 2,
+            square_width - 2,
+            square_height - 2,
             color
         )
 
@@ -421,7 +519,7 @@ class Board(QFrame):
 
         painter.drawLine(
             x,
-            y + self.square_height() - 1,
+            y + square_height - 1,
             x,
             y
         )
@@ -429,7 +527,7 @@ class Board(QFrame):
         painter.drawLine(
             x,
             y,
-            x + self.square_width() - 1,
+            x + square_width - 1,
             y
         )
 
@@ -439,15 +537,15 @@ class Board(QFrame):
 
         painter.drawLine(
             x + 1,
-            y + self.square_height() - 1,
-            x + self.square_width() - 1,
-            y + self.square_height() - 1
+            y + square_height - 1,
+            x + square_width - 1,
+            y + square_height - 1
         )
 
         painter.drawLine(
-            x + self.square_width() - 1,
-            y + self.square_height() - 1,
-            x + self.square_width() - 1,
+            x + square_width - 1,
+            y + square_height - 1,
+            x + square_width - 1,
             y + 1
         )
 
@@ -464,7 +562,7 @@ class Tetrominoe:
 
 
 class Shape:
-    coordsTable: List[List[Tuple[int, int]]] = (
+    coords_table: List[List[Tuple[int, int]]] = (
         ((0, 0), (0, 0), (0, 0), (0, 0)),
         ((0, -1), (0, 0), (-1, 0), (-1, 1)),
         ((0, -1), (0, 0), (1, 0), (1, 1)),
@@ -481,8 +579,6 @@ class Shape:
             for _ in range(4)
         ]
 
-        # self.piece_shape: int = Tetrominoe.NoShape
-
         self.set_shape(
             shape = Tetrominoe.NoShape
         )
@@ -491,7 +587,7 @@ class Shape:
         return self.piece_shape
 
     def set_shape(self, shape: int) -> None:
-        table: List[Tuple[int, int]] = self.coordsTable[shape]
+        table: List[Tuple[int, int]] = self.coords_table[shape]
 
         for i in range(4):
             for j in range(2):
@@ -499,9 +595,9 @@ class Shape:
 
         self.piece_shape = shape
 
-    def setRandomShape(self) -> None:
+    def set_random_shape(self) -> None:
         self.set_shape(
-            shape = random.randint(1, 7)
+            shape = randint(1, len(GameBoard.COLOR_TABLE) - 1)
         )
 
     def x(self, index: int) -> int:
@@ -510,13 +606,13 @@ class Shape:
     def y(self, index: int) -> int:
         return self.coords[index][1]
 
-    def setX(self, index: int, x: int) -> None:
+    def set_x(self, index: int, x: int) -> None:
         self.coords[index][0] = x
 
-    def setY(self, index: int, y: int) -> None:
+    def set_y(self, index: int, y: int) -> None:
         self.coords[index][1] = y
 
-    def minX(self) -> int:
+    def min_x(self) -> int:
         value: int = self.coords[0][0]
 
         for i in range(4):
@@ -524,7 +620,7 @@ class Shape:
 
         return value
 
-    def maxX(self) -> int:
+    def max_x(self) -> int:
         value = self.coords[0][0]
 
         for i in range(4):
@@ -532,7 +628,7 @@ class Shape:
 
         return value
 
-    def minY(self) -> int:
+    def min_y(self) -> int:
         value = self.coords[0][1]
 
         for i in range(4):
@@ -540,7 +636,7 @@ class Shape:
 
         return value
 
-    def maxY(self) -> int:
+    def max_y(self) -> int:
         value = self.coords[0][1]
 
         for i in range(4):
@@ -556,14 +652,14 @@ class Shape:
         result.piece_shape = self.piece_shape
 
         for i in range(4):
-            result.setX(
+            result.set_x(
                 index = i,
                 x = self.y(
                     index = i
                 )
             )
 
-            result.setY(
+            result.set_y(
                 index = i,
                 y = -self.x(
                     index = i
@@ -580,16 +676,22 @@ class Shape:
         result.piece_shape = self.piece_shape
 
         for i in range(4):
-            result.setX(i, -self.y(i))
-            result.setY(i, self.x(i))
+            result.set_x(i, -self.y(i))
+            result.set_y(i, self.x(i))
 
         return result
 
 
 def main():
-    app: QApplication = QApplication(sys.argv)
-    game: Tetris = Tetris()
-    sys.exit(app.exec_())
+    app: QApplication = QApplication([])
+
+    main_window: MainWindow = MainWindow(
+        clipboard = app.clipboard()
+    )
+
+    app.exec_()
+
+    main_window.game_board.save_points()
 
 
 if __name__ == "__main__":

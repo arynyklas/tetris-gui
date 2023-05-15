@@ -1,4 +1,6 @@
 **test**
 data
-assets/
-__pycache__/
+**__**
+*.zip
+*.rar
+*.bat
