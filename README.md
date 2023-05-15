@@ -1,14 +1,15 @@
-# Тетрис
-Это обычный тетрис, написанный на Python v3.7+ с использованием Qt (PyQt5)
-В игре реализован такой функционал:
-- Возможность управления падающего тайла
-- Счётчик очков
-- Когда собирается один ряд тайлов, убирается этот ряд и добавляется очко игроку
-- Игрок проигрывает, если один из тайлов достигнет верхнего края
-- На главное странице игрок может увидеть статус игры, свой рекордный и последний счёт, а также поставить игру на паузу или вовсе перезапустить её
-- Звуковое сопровождение
-- Сохранение результатов после закрытия игры
-- Реализовать шейринг своего рекордного результата (копируется в буфер обмена)
+# Tetris
+This is a regular tetris written in Python v3.7+ using Qt (PyQt5)
+
+### The following functionality is implemented in the game:
+- Ability to control the falling tile
+- Score counter
+- When one row of tiles is assembled, this row is removed and a point is added to the player
+- The player loses if one of the tiles reaches the top edge
+- On the main page, the player can see the status of the game, his record and last score, as well as pause the game or restart it altogether
+- Soundtrack
+- Save results after closing the game
+- Implement sharing of your record result (copies to the clipboard)
 
 
-#### Основа игры взята [отсюда](https://zetcode.com/gui/pyqt5/tetris/)
+##### The basis of the game is taken from [here] (https://zetcode.com/gui/pyqt5/tetris/)
